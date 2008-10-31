@@ -21,11 +21,5 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #++
 
-require 'cgi'
-require 'net/http'
-require 'net/https'
-require 'active_support'
-
-    
 require File.dirname(__FILE__) + '/notification'
 require File.dirname(__FILE__) + '/helper'

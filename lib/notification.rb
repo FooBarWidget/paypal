@@ -1,4 +1,8 @@
 require 'net/http'
+require 'net/https'
+require 'cgi'
+require 'money'
+require 'active_support'
 
 module Paypal
   # Parser and handler for incoming Instant payment notifications from paypal. 

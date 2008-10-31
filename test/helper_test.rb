@@ -3,8 +3,13 @@ $:.unshift(File.dirname(__FILE__) + '/../lib')
 require 'test/unit'
 require 'paypal'
 
-require_gem 'money'
-require_gem 'actionpack' rescue LoadError raise(StandardErrror.new("This test needs ActionPack installed as gem to run"))
+begin
+  require 'actionpack'
+  require 'action_controller'
+  require 'action_view'
+rescue LoadError
+  raise StandardErrror, "This test needs ActionPack installed as gem to run"
+end
 
 
 # Little hack class which pretends to be a active controller
@@ -14,6 +19,10 @@ class TestController
   include ActionView::Helpers::FormHelper
   include ActionView::Helpers::UrlHelper
   include ActionView::Helpers::FormTagHelper
+  
+  def protect_against_forgery?
+    false
+  end
 
   def url_for(options, *parameters_for_method_reference)
     "http://www.sandbox.paypal.com/cgi-bin/webscr"
