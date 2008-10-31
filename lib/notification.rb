@@ -5,44 +5,49 @@ require 'money'
 require 'active_support'
 
 module Paypal
-  # Parser and handler for incoming Instant payment notifications from paypal. 
-  # The Example shows a typical handler in a rails application. Note that this
+  # Parser and handler for incoming instant payment notifications from Paypal.
+  # The example shows a typical handler in a Rails application. Note that this
   # is an example, please read the Paypal API documentation for all the details
   # on creating a safe payment controller.
   #
   # Example
   #  
   #   class BackendController < ApplicationController
-  #   
   #     def paypal_ipn
   #       notify = Paypal::Notification.new(request.raw_post)
-  #   
   #       order = Order.find(notify.item_id)
-  #     
-  #       if notify.acknowledge 
+  #       
+  #       # Verify this IPN with Paypal.
+  #       if notify.acknowledge
+  #         # Paypal said this IPN is legit.
   #         begin
-  #           
-  #           if notify.complete? and order.total == notify.amount
-  #             order.status = 'success' 
-  #             
-  #             shop.ship(order)
+  #           if notify.complete? && order.total == notify.amount
+  #             begin
+  #               order.status = 'success'
+  #               shop.ship(order)
+  #               order.save!
+  #             rescue => e
+  #               order.status = 'failed'
+  #               order.save!
+  #               raise
+  #             end
   #           else
-  #             logger.error("Failed to verify Paypal's notification, please investigate")
+  #             logger.error("We received a payment notification, but the " <<
+  #                          "payment doesn't seem to be complete. Please " <<
+  #                          "investigate. Transaction ID #{notify.transaction_id}.")
   #           end
-  #   
-  #         rescue => e
-  #           order.status        = 'failed'      
-  #           raise
-  #         ensure
-  #           order.save
-  #         end
+  #       else
+  #         # Paypal said this IPN is not correct.
+  #         # ... log possible hacking attempt here ...
   #       end
-  #   
-  #       render :nothing
+  #       
+  #       render :nothing => true
   #     end
   #   end
   class Notification
+    # The parsed Paypal IPN data parameters.
     attr_accessor :params
+    # The raw Paypal IPN data that was received.
     attr_accessor :raw
 
     # Overwrite this url. It points to the Paypal sandbox by default.
@@ -50,17 +55,15 @@ module Paypal
     # speaks of a https:// address for production use. In my tests 
     # this https address does not in fact work. 
     # 
-    # Example: 
+    # Example:
     #   Paypal::Notification.ipn_url = http://www.paypal.com/cgi-bin/webscr
-    #
     cattr_accessor :ipn_url
     @@ipn_url = 'https://www.sandbox.paypal.com/cgi-bin/webscr'
     
-
     # Overwrite this certificate. It contains the Paypal sandbox certificate by default.
     #
     # Example:
-    #   Paypal::Notification.paypal_cert = File::read("paypal_cert.pem")
+    #   Paypal::Notification.paypal_cert = File.read("paypal_cert.pem")
     cattr_accessor :paypal_cert
     @@paypal_cert = """
 -----BEGIN CERTIFICATE-----
@@ -87,8 +90,10 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
 -----END CERTIFICATE-----
 """
 
-    # Creates a new paypal object. Pass the raw html you got from paypal in. 
-    # In a rails application this looks something like this
+    # Creates a new Paypal::Notification object. As the first argument,
+    # pass the raw POST data that you've received from Paypal.
+    #
+    # In a Rails application this looks something like this:
     # 
     #   def paypal_ipn
     #     paypal = Paypal::Notification.new(request.raw_post)
@@ -98,23 +103,32 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
       empty!
       parse(post)
     end
-
-    # Was the transaction complete?
+    
+    # Returns the status of this transaction. May be "Completed", "Failed",
+    # "Reversed" or "Pending". See the Paypal IPN documentation for more
+    # information about IPN statuses.
+    def status
+      params['payment_status']
+    end
+    
+    # Checks whether this Paypal transaction is completed. That is, as opposed
+    # to being failed, reversed or pending. See the Paypal IPN documentation for
+    # more information about IPN statuses.
     def complete?
       status == "Completed"
     end
-
+    
+    # Checks whether this Paypal transaction is pending.
+    def pending?
+      status == "Pending"
+    end
+    
     # When was this payment received by the client. 
     # sometimes it can happen that we get the notification much later. 
     # One possible scenario is that our web application was down. In this case paypal tries several 
     # times an hour to inform us about the notification
     def received_at
-      Time.parse params['payment_date']
-    end
-
-    # Whats the status of this transaction?
-    def status
-      params['payment_status']
+      Time.parse(params['payment_date'])
     end
 
     # Id of this transaction (paypal number)
@@ -128,7 +142,7 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
       params['txn_type']
     end
 
-    # the money amount we received in X.2 decimal.
+    # The amount of money that we've received, in X.2 decimal.
     def gross
       params['mc_gross']
     end
@@ -142,7 +156,7 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
     def currency
       params['mc_currency']
     end
-  
+    
     # This is the item number which we submitted to paypal 
     def item_id
       params['item_number']
@@ -151,7 +165,7 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
     # This is the invocie which you passed to paypal 
     def invoice
       params['invoice']
-    end   
+    end
     
     # This is the invocie which you passed to paypal 
     def test?
@@ -181,8 +195,8 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
     end
 
     # Acknowledge the transaction to paypal. This method has to be called after a new 
-    # ipn arrives. Paypal will verify that all the information we received are correct and will return a 
-    # ok or a fail. 
+    # IPN arrives. Paypal will verify that all the information we received are
+    # correct and will return a ok or a fail. 
     # 
     # Example:
     # 
@@ -194,6 +208,7 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
     #     else
     #       ... log possible hacking attempt ...
     #     end
+    #   end
     def acknowledge      
       payload =  raw
       
