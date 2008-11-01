@@ -203,6 +203,10 @@ module Paypal
       http.use_ssl = true
       if self.class.ca_cert_file
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        if http.respond_to?(:enable_post_connection_check)
+          # http://www.ruby-lang.org/en/news/2007/10/04/net-https-vulnerability/
+          http.enable_post_connection_check = true
+        end
         http.ca_file = self.class.ca_cert_file
       else
         http.verify_mode = OpenSSL::SSL::VERIFY_NONE
