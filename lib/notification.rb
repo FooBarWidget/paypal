@@ -45,6 +45,8 @@ module Paypal
   #     end
   #   end
   class Notification
+    CA_CERT_FILE = File.expand_path(File.join(File.dirname(__FILE__), "..", "misc", "verisign.pem"))
+    
     # The parsed Paypal IPN data parameters.
     attr_accessor :params
     # The raw Paypal IPN data that was received.
@@ -56,39 +58,12 @@ module Paypal
     # this https address does not in fact work. 
     # 
     # Example:
-    #   Paypal::Notification.ipn_url = http://www.paypal.com/cgi-bin/webscr
+    #   Paypal::Notification.ipn_url = "http://www.paypal.com/cgi-bin/webscr"
     cattr_accessor :ipn_url
     @@ipn_url = 'https://www.sandbox.paypal.com/cgi-bin/webscr'
     
-    # Overwrite this certificate. It contains the Paypal sandbox certificate by default.
-    #
-    # Example:
-    #   Paypal::Notification.paypal_cert = File.read("paypal_cert.pem")
-    cattr_accessor :paypal_cert
-    @@paypal_cert = """
------BEGIN CERTIFICATE-----
-MIIDoTCCAwqgAwIBAgIBADANBgkqhkiG9w0BAQUFADCBmDELMAkGA1UEBhMCVVMx
-EzARBgNVBAgTCkNhbGlmb3JuaWExETAPBgNVBAcTCFNhbiBKb3NlMRUwEwYDVQQK
-EwxQYXlQYWwsIEluYy4xFjAUBgNVBAsUDXNhbmRib3hfY2VydHMxFDASBgNVBAMU
-C3NhbmRib3hfYXBpMRwwGgYJKoZIhvcNAQkBFg1yZUBwYXlwYWwuY29tMB4XDTA0
-MDQxOTA3MDI1NFoXDTM1MDQxOTA3MDI1NFowgZgxCzAJBgNVBAYTAlVTMRMwEQYD
-VQQIEwpDYWxpZm9ybmlhMREwDwYDVQQHEwhTYW4gSm9zZTEVMBMGA1UEChMMUGF5
-UGFsLCBJbmMuMRYwFAYDVQQLFA1zYW5kYm94X2NlcnRzMRQwEgYDVQQDFAtzYW5k
-Ym94X2FwaTEcMBoGCSqGSIb3DQEJARYNcmVAcGF5cGFsLmNvbTCBnzANBgkqhkiG
-9w0BAQEFAAOBjQAwgYkCgYEAt5bjv/0N0qN3TiBL+1+L/EjpO1jeqPaJC1fDi+cC
-6t6tTbQ55Od4poT8xjSzNH5S48iHdZh0C7EqfE1MPCc2coJqCSpDqxmOrO+9QXsj
-HWAnx6sb6foHHpsPm7WgQyUmDsNwTWT3OGR398ERmBzzcoL5owf3zBSpRP0NlTWo
-nPMCAwEAAaOB+DCB9TAdBgNVHQ4EFgQUgy4i2asqiC1rp5Ms81Dx8nfVqdIwgcUG
-A1UdIwSBvTCBuoAUgy4i2asqiC1rp5Ms81Dx8nfVqdKhgZ6kgZswgZgxCzAJBgNV
-BAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMREwDwYDVQQHEwhTYW4gSm9zZTEV
-MBMGA1UEChMMUGF5UGFsLCBJbmMuMRYwFAYDVQQLFA1zYW5kYm94X2NlcnRzMRQw
-EgYDVQQDFAtzYW5kYm94X2FwaTEcMBoGCSqGSIb3DQEJARYNcmVAcGF5cGFsLmNv
-bYIBADAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBBQUAA4GBAFc288DYGX+GX2+W
-P/dwdXwficf+rlG+0V9GBPJZYKZJQ069W/ZRkUuWFQ+Opd2yhPpneGezmw3aU222
-CGrdKhOrBJRRcpoO3FjHHmXWkqgbQqDWdG7S+/l8n1QfDPp+jpULOrcnGEUY41Im
-jZJTylbJQ1b5PBBjGiP0PpK48cdF
------END CERTIFICATE-----
-"""
+    cattr_accessor :ca_cert_file
+    @@ca_cert_file = CA_CERT_FILE
 
     # Creates a new Paypal::Notification object. As the first argument,
     # pass the raw POST data that you've received from Paypal.
@@ -121,6 +96,10 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
     # Checks whether this Paypal transaction is pending.
     def pending?
       status == "Pending"
+    end
+    
+    def receiver_email
+      params['receiver_email']
     end
     
     # When was this payment received by the client. 
@@ -210,7 +189,7 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
     #     end
     #   end
     def acknowledge      
-      payload =  raw
+      payload = raw
       
       uri = URI.parse(self.class.ipn_url)
       request_path = "#{uri.path}?cmd=_notify-validate"
@@ -221,11 +200,16 @@ jZJTylbJQ1b5PBBjGiP0PpK48cdF
 
       http = Net::HTTP.new(uri.host, uri.port)
 
-      http.verify_mode    = OpenSSL::SSL::VERIFY_NONE unless @ssl_strict
-      http.use_ssl        = true
+      http.use_ssl = true
+      if self.class.ca_cert_file
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.ca_file = self.class.ca_cert_file
+      else
+        http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      end
 
       request = http.request(request, payload)
-        
+      
       raise StandardError.new("Faulty paypal result: #{request.body}") unless ["VERIFIED", "INVALID"].include?(request.body)
       
       request.body == "VERIFIED"
