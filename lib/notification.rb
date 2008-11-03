@@ -53,12 +53,9 @@ module Paypal
     attr_accessor :raw
 
     # Overwrite this url. It points to the Paypal sandbox by default.
-    # Please note that the Paypal technical overview (doc directory)
-    # speaks of a https:// address for production use. In my tests 
-    # this https address does not in fact work. 
     # 
     # Example:
-    #   Paypal::Notification.ipn_url = "http://www.paypal.com/cgi-bin/webscr"
+    #   Paypal::Notification.ipn_url = "https://www.paypal.com/cgi-bin/webscr"
     cattr_accessor :ipn_url
     @@ipn_url = 'https://www.sandbox.paypal.com/cgi-bin/webscr'
     
